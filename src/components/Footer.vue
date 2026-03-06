@@ -8,7 +8,7 @@
         仅供个人学习使用，请勿用于商业用途
       </p>
       <p class="font-mono text-xs text-text-muted/60">
-        Powered by yt-dlp &middot; Built with Vue 3 + Vite
+        Powered by david &middot; Built with Vue 3 + Vite
       </p>
     </div>
   </footer>
