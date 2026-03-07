@@ -3,8 +3,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from extractor import extract_video_info, download_video_stream, extract_subtitles
-from transcriber import transcribe_video
+from extractor import extract_video_info, download_video_stream
 
 app = FastAPI(title="万能视频提取器 API", version="0.1.0")
 
@@ -13,6 +12,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -46,19 +46,3 @@ def download_video(url: str, format_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/subtitles")
-def get_subtitles(url: str):
-    try:
-        subs = extract_subtitles(url)
-        return {"subtitles": subs}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/api/transcribe")
-def transcribe(url: str):
-    try:
-        result = transcribe_video(url)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

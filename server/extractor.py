@@ -179,7 +179,10 @@ def download_video_stream(url: str, format_id: str) -> tuple[Generator, str, str
             base = os.path.splitext(filename)[0]
             filename = base + ".mp4"
 
-    safe_title = re.sub(r'[^\w\u4e00-\u9fff\-.]', '_', info.get("title", "video"))
+    title = info.get("title", "video")
+    safe_title = re.sub(r'[\\/:*?"<>|]', '', title).strip()
+    if not safe_title:
+        safe_title = "video"
     download_name = f"{safe_title}.mp4"
 
     def file_stream():
@@ -197,134 +200,3 @@ def download_video_stream(url: str, format_id: str) -> tuple[Generator, str, str
     return file_stream(), download_name, "video/mp4"
 
 
-def _is_danmaku(lang: str, formats: list) -> bool:
-    """Filter out Bilibili danmaku (bullet comments) which are XML-based."""
-    if lang in ("danmaku",):
-        return True
-    return all(f.get("ext") == "xml" for f in formats)
-
-
-def _pick_text_format(formats: list) -> dict | None:
-    """Pick the best text-based subtitle format, skip XML/danmaku."""
-    text_fmts = [f for f in formats if f.get("ext") not in ("xml",)]
-    if not text_fmts:
-        return None
-    for ext in ("json3", "vtt", "srt", "srv1", "srv2", "srv3", "ass"):
-        match = next((f for f in text_fmts if f.get("ext") == ext), None)
-        if match:
-            return match
-    return text_fmts[0]
-
-
-def _fetch_subtitle_text(sub_url: str, ext: str, referer: str | None = None) -> str:
-    """Fetch subtitle content from URL, proxied through backend to bypass 403."""
-    import requests
-    headers = {}
-    if referer:
-        headers["Referer"] = referer
-    try:
-        resp = requests.get(sub_url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        raw = resp.text
-    except Exception:
-        return ""
-
-    if ext == "json3":
-        try:
-            import json
-            data = json.loads(raw)
-            events = data.get("events") or []
-            lines = []
-            for e in events:
-                segs = e.get("segs")
-                if not segs:
-                    continue
-                ms = e.get("tStartMs", 0)
-                s = ms // 1000
-                m, sec = s // 60, s % 60
-                time_str = f"{m:02d}:{sec:02d}"
-                text = "".join(seg.get("utf8", "") for seg in segs).strip()
-                if text:
-                    lines.append(f"{time_str}  {text}")
-            return "\n".join(lines)
-        except Exception:
-            return raw
-
-    if ext in ("vtt", "srt"):
-        lines = []
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if line.isdigit():
-                continue
-            if "-->" in line:
-                continue
-            if line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
-                continue
-            lines.append(line)
-        return "\n".join(lines)
-
-    return raw
-
-
-def extract_subtitles(url: str) -> list[dict]:
-    """Extract subtitles and return their text content directly."""
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        info = ydl.sanitize_info(info)
-
-    if not info:
-        return []
-
-    extractor_key = info.get("extractor_key", "")
-    referer = _get_referer(extractor_key)
-
-    results = []
-
-    subs = info.get("subtitles") or {}
-    auto_subs = info.get("automatic_captions") or {}
-
-    for lang, formats in subs.items():
-        if _is_danmaku(lang, formats):
-            continue
-        best = _pick_text_format(formats)
-        if not best or not best.get("url"):
-            continue
-        text = _fetch_subtitle_text(best["url"], best.get("ext", ""), referer)
-        if text:
-            results.append({
-                "lang": lang,
-                "name": best.get("name", lang),
-                "content": text,
-                "auto": False,
-            })
-
-    if not results:
-        preferred_langs = ("zh-Hans", "zh", "zh-CN", "en", "ja", "zh-TW")
-        for lang, formats in auto_subs.items():
-            if lang not in preferred_langs:
-                continue
-            if _is_danmaku(lang, formats):
-                continue
-            best = _pick_text_format(formats)
-            if not best or not best.get("url"):
-                continue
-            text = _fetch_subtitle_text(best["url"], best.get("ext", ""), referer)
-            if text:
-                results.append({
-                    "lang": lang,
-                    "name": best.get("name", lang),
-                    "content": text,
-                    "auto": True,
-                })
-
-    return results
