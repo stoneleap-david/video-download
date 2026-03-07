@@ -6,76 +6,67 @@ import Home from './views/Home.vue'
 import VideoResult from './components/VideoResult.vue'
 import type { VideoInfo } from './components/VideoResult.vue'
 
+const API_BASE = 'http://127.0.0.1:8000'
+
 const currentView = ref<'home' | 'result'>('home')
 const sourceUrl = ref('')
+const videoInfo = ref<VideoInfo | null>(null)
+const parseError = ref('')
+const parsing = ref(false)
 
-const mockVideo = ref<VideoInfo>({
-  title: '',
-  thumbnail: '',
-  duration: '',
-  platform: '',
-  platformColor: '',
-  author: '',
-  formats: [],
-})
-
-const mockDataMap: Record<string, VideoInfo> = {
-  bilibili: {
-    title: '【4K】这可能是B站画质最好的风景视频',
-    thumbnail: 'https://picsum.photos/seed/bili/800/450',
-    duration: '12:34',
-    platform: 'Bilibili',
-    platformColor: '#00A1D6',
-    author: '@自然纪录片',
-    formats: [
-      { label: '4K', quality: '4K 超清', size: '680 MB' },
-      { label: '1080P', quality: '1080P 高清', size: '320 MB' },
-      { label: '720P', quality: '720P', size: '180 MB' },
-    ],
-  },
-  youtube: {
-    title: 'The Most Beautiful Scenery on Earth - 4K Ultra HD',
-    thumbnail: 'https://picsum.photos/seed/yt/800/450',
-    duration: '25:10',
-    platform: 'YouTube',
-    platformColor: '#FF0000',
-    author: '@NatureChannel',
-    formats: [
-      { label: '4K', quality: '4K 60fps', size: '1.2 GB' },
-      { label: '1080P', quality: '1080P 60fps', size: '480 MB' },
-      { label: '720P', quality: '720P', size: '220 MB' },
-      { label: '360P', quality: '360P', size: '85 MB' },
-    ],
-  },
-  default: {
-    title: '短视频精选合集 - 今日热门推荐',
-    thumbnail: 'https://picsum.photos/seed/video/800/450',
-    duration: '03:22',
-    platform: '抖音',
-    platformColor: '#FE2C55',
-    author: '@热门视频',
-    formats: [
-      { label: '1080P', quality: '1080P 高清', size: '45 MB' },
-      { label: '720P', quality: '720P', size: '22 MB' },
-    ],
-  },
-}
-
-function handleExtract(url: string) {
+async function handleExtract(url: string) {
   sourceUrl.value = url
-  const lower = url.toLowerCase()
-  if (lower.includes('bilibili') || lower.includes('b23')) {
-    mockVideo.value = mockDataMap.bilibili
-  } else if (lower.includes('youtube') || lower.includes('youtu.be')) {
-    mockVideo.value = mockDataMap.youtube
-  } else {
-    mockVideo.value = mockDataMap.default
+  parseError.value = ''
+  parsing.value = true
+
+  try {
+    const res = await fetch(`${API_BASE}/api/parse?url=${encodeURIComponent(url)}`)
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || '解析失败')
+    }
+    videoInfo.value = await res.json()
+    currentView.value = 'result'
+  } catch (e: any) {
+    parseError.value = e.message || '网络错误，请重试'
+  } finally {
+    parsing.value = false
   }
-  currentView.value = 'result'
 }
 
 function handleBack() {
   currentView.value = 'home'
+  videoInfo.value = null
+  parseError.value = ''
+}
+
+const downloading = ref(false)
+
+async function handleDownload(formatId: string) {
+  if (downloading.value) return
+  downloading.value = true
+
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/download?url=${encodeURIComponent(sourceUrl.value)}&format_id=${encodeURIComponent(formatId)}`
+    )
+    if (!res.ok) throw new Error('下载失败')
+
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename\*=UTF-8''(.+)/)
+    const filename = match ? decodeURIComponent(match[1]) : 'video.mp4'
+
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(a.href)
+  } catch (e: any) {
+    alert(e.message || '下载出错，请重试')
+  } finally {
+    downloading.value = false
+  }
 }
 </script>
 
@@ -84,12 +75,19 @@ function handleBack() {
     <Navbar />
     <main class="flex-1">
       <Transition name="fade" mode="out-in">
-        <Home v-if="currentView === 'home'" @extract="handleExtract" />
+        <Home
+          v-if="currentView === 'home'"
+          :loading="parsing"
+          :error="parseError"
+          @extract="handleExtract"
+        />
         <VideoResult
-          v-else
-          :video="mockVideo"
+          v-else-if="videoInfo"
+          :video="videoInfo"
           :source-url="sourceUrl"
+          :downloading="downloading"
           @back="handleBack"
+          @download="handleDownload"
         />
       </Transition>
     </main>

@@ -3,6 +3,11 @@ import UrlInput from '../components/UrlInput.vue'
 import PlatformGrid from '../components/PlatformGrid.vue'
 import FeatureCards from '../components/FeatureCards.vue'
 
+defineProps<{
+  loading?: boolean
+  error?: string
+}>()
+
 const emit = defineEmits<{
   extract: [url: string]
 }>()
@@ -33,7 +38,7 @@ const emit = defineEmits<{
     </p>
 
     <div class="relative mt-10 w-full max-w-2xl">
-      <UrlInput @extract="(url) => emit('extract', url)" />
+      <UrlInput :loading="loading" :error="error" @extract="(url) => emit('extract', url)" />
     </div>
 
     <div class="relative mt-16 w-full max-w-3xl">
